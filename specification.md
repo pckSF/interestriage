@@ -76,7 +76,89 @@ The system favors **low-friction capture, batch nightly synthesis, and dual text
 - *Privacy boundary shifts subtly.* Source content lives on the server, not on the capture device. Disclosure language in the UI must reflect this: the user is trusting the server operator (themselves, in the self-hosted case) in addition to any external LLM/TTS providers they configure.
 - *Operational surface appears.* TLS certificate management, backups, updates, and basic intrusion logging become real concerns. The Stage 11 runbook must cover them.
 
-**What this is not.** This is not a commitment to multi-tenant SaaS. The architecture allows multi-user as a future path — per-user namespacing is enforced at the storage layer from Stage 1 — but multi-tenancy hardening, billing, account lifecycle, and abuse handling are explicitly outside MVP and are noted in Section 17 (Outlook).
+**What this is not.** This is not a commitment to multi-tenant SaaS. The architecture allows multi-user as a future path — per-user namespacing is enforced at the storage layer from Stage 1 — but multi-tenancy hardening, billing, account lifecycle, and abuse handling are explicitly outside MVP and are noted in Section 16 (Outlook).
+
+### 1.2 Build and Deployment Topology
+
+**Repo structure is not deployment structure.** Interestriage is developed as a single monorepo (one git history, multiple subprojects under one root) but it deploys as several independent artifacts, each going to its own destination. This is the standard pattern for projects of this shape; it is documented here so the agent does not conflate "everything is in one repo" with "everything runs as one binary."
+
+**Artifacts produced from the monorepo:**
+
+| Artifact | Source directory | Built by | Deployed to |
+|---|---|---|---|
+| Backend image (FastAPI + worker + scheduler) | `backend/`, `worker/` | CI / `docker build` | Server host (or `localhost` in local-only mode) |
+| Dashboard static bundle | `web/` | CI / framework build | Served by the backend container, the reverse proxy, or a CDN |
+| Browser extension package (`.zip` / `.crx`) | `extension/` | CI / `web-ext build` | Chrome Web Store, then users' browsers |
+| Mobile app binary (post-MVP, see §16.1) | `mobile/` | Platform-specific CI | Apple App Store / Google Play, then users' devices |
+
+The backend and worker may run as one container or two; the spec does not constrain this. They share a codebase and dependency set, so packaging them as one image with two entry points (`api` and `worker`) is the default. Splitting them is a permitted deviation if a clear reason emerges (e.g., the worker needs GPU and the API does not).
+
+**The flow:**
+
+```
+                    ┌──────────────────────────────────┐
+                    │         Monorepo (git)           │
+                    │   developer machines + CI        │
+                    └────────────────┬─────────────────┘
+                                     │  CI build step
+                  ┌──────────────────┼──────────────────┬─────────────┐
+                  │                  │                  │             │
+                  ▼                  ▼                  ▼             ▼
+        ┌──────────────────┐ ┌──────────────┐ ┌────────────────┐ ┌─────────┐
+        │ Backend image    │ │ Dashboard    │ │ extension.zip  │ │ Mobile  │
+        │ (api + worker)   │ │ static files │ │                │ │ binary  │
+        └────────┬─────────┘ └──────┬───────┘ └────────┬───────┘ └────┬────┘
+                 │                  │                  │              │
+                 ▼                  ▼                  ▼              ▼
+         Server / VPS         Server, proxy,     Chrome Web         App
+         (or localhost)       or CDN             Store              stores
+```
+
+**You do not "split the repo" before deploying.** The monorepo stays whole; the CI pipeline is what produces the separate artifacts. Each artifact only contains what its destination needs. The server never sees the extension's source code; the Chrome Web Store never sees the backend.
+
+**For self-hosted personal deployment:** the simplest production setup is a `docker-compose.yml` under `infra/production/` that runs the backend image behind a Caddy or nginx reverse proxy with TLS via Let's Encrypt. The dashboard's static files can be served by either the backend or the proxy. The extension is built and uploaded to the Chrome Web Store separately (or loaded unpacked during personal use). The mobile app, when it exists, is distributed through app stores and is fully decoupled from the server's release cycle.
+
+**Same images run in dev and prod.** A core design rule: the Docker images built for production are the same images run during local development. Local dev differs only in configuration (bind addresses, TLS off, smaller resource limits, faked clock, stub model adapters — see §1.3). This eliminates "works on my machine" by construction.
+
+### 1.3 Local Development Environment
+
+**Principle: the local stack faithfully replicates production.** Running the system on a developer's laptop must use the same container images, the same network shape, and the same configuration loader as a real server deployment. Differences between dev and prod are *only* configuration, never separate code paths. This makes per-stage testing (Section 12) mechanically reliable: an acceptance test that passes locally is meaningful evidence that the same scenario passes on the server.
+
+**The local stack.** A `docker-compose.yml` at `infra/dev/` (or the repo root) brings up:
+
+- `backend` — the FastAPI service. Bound to the internal Docker network, not directly to the host.
+- `worker` — the batch pipeline process. Same image as `backend` with a different entry point if combined; separate container if split.
+- `db` — Postgres (optional in MVP — SQLite-on-volume is the default; Postgres becomes useful when validating the post-MVP migration path).
+- `proxy` — Caddy or nginx. The only container with a host port mapped, standing in for the production reverse proxy. Serves the dashboard's static bundle and proxies API requests.
+- `evil-server` — a deliberately hostile HTTP server used by Stage 3 SSRF tests (see below). Not started in normal `docker compose up`; brought up by the test harness.
+- `parser-sandbox` — the sandboxed PDF/HTML parser worker (Stage 3). Resource-capped to validate that sandboxing actually holds in development, not only in production.
+
+The browser extension during development points at `https://localhost` (with a self-signed certificate trusted by the developer's browser) or at `http://localhost:8080` if TLS is disabled for that session. The same extension build, with a different configured backend URL, talks to a real server in production.
+
+**The `evil-server` container.** A small HTTP server purpose-built to test Stage 3's SSRF and parser defenses. It serves, among other things:
+
+- Redirects to private IPs (`127.0.0.1`, `10.0.0.1`, `169.254.169.254`).
+- DNS-rebinding scenarios (a hostname that resolves to a public IP on first lookup and a private IP on second).
+- Slow-loris responses (one byte per second to test fetch timeouts).
+- Oversized payloads (multi-gigabyte responses to test size caps).
+- Content-type mismatches (claims `application/json`, returns HTML).
+- PDF "bombs" (highly compressed, deeply nested objects designed to exhaust parser memory).
+- Markdown files containing inline HTML/JS (to verify the markdown parser treats them as text).
+
+Stage 3's acceptance tests issue requests **through the backend container** to URLs hosted by `evil-server`, asserting that each attack is refused. This is a real network test, not a mock — the only way to credibly verify the SSRF defenses.
+
+**The TTS stub adapter.** Stage 8's audio generation calls a TTS engine that may be slow, expensive, or both. For day-to-day iteration the spec mandates a `TTSAdapter` implementation called `StubTTS` that returns a short silent MP3 of a deterministic length proportional to the input text. The dev `docker-compose.yml` configures the worker to use `StubTTS` by default. Real TTS adapters (Coqui, Kokoro, ElevenLabs, etc.) are exercised by a separate `make test-audio` target (or equivalent) that the developer runs deliberately. This keeps the inner loop fast while still allowing real audio tests on demand.
+
+**Optional: `mitmproxy` for outbound inspection.** A `mitmproxy` container can be inserted between the worker and any external LLM/TTS provider during testing to verify that the credential-redaction sweeps in Stages 5–8 are actually stripping what they're supposed to before sending prompts off-host. Useful for security tests; not part of the default dev stack.
+
+**Caveats the agent should know:**
+
+- Docker on macOS is slower than on Linux due to the file-sharing layer. Acceptable for development; throughput benchmarks should run on a Linux host.
+- The first build of an image is slow (dependency installs); subsequent builds are fast due to layer caching.
+- Local TTS engines with heavy models may run better on the host than in a container, especially without GPU passthrough. The `TTSAdapter` interface lets the agent swap in a host-process adapter without touching the rest of the worker.
+- `docker compose down -v` wipes all dev state including the database volume; this is a feature, not a bug, but is worth knowing before doing it accidentally on a long-lived dev instance.
+
+**Out of scope for the local stack.** Production-grade orchestration (Kubernetes, Nomad), multi-host networking, blue-green deployment. Self-hosted single-user deployment via `docker-compose` is sufficient for MVP and well into post-MVP.
 
 ---
 
@@ -399,31 +481,43 @@ The following stages are dependency-ordered. Each stage produces a runnable, tes
 
 ### Stage 0 — Project foundation
 
-**Goal.** Set up the repository, dependency management, baseline tooling, and security plumbing so subsequent stages do not have to revisit it.
+**Goal.** Set up the repository, dependency management, baseline tooling, deployment scaffolding, and security plumbing so subsequent stages do not have to revisit it.
 
 **Deliverables.**
-- Monorepo (or coordinated multi-repo) with these directories: `extension/`, `backend/`, `worker/`, `web/`, `infra/`, `docs/`, `tests/`.
+- **Monorepo** with these directories: `extension/`, `backend/`, `worker/`, `web/`, `mobile/` (placeholder for §16.1, may contain only a README at this stage), `shared/` (cross-component schemas and types), `infra/`, `prompts/`, `docs/`, `tests/`. The monorepo maps to multiple deployment artifacts as described in §1.2; splitting into multiple repos is permitted under the deviation clause (0.2) only with concrete justification.
 - Language baselines: TypeScript for extension and dashboard, Python for backend and worker. Lockfiles (`package-lock.json` / `pnpm-lock.yaml`, `uv.lock` or `poetry.lock`).
+- Workspace configuration (e.g., `pnpm` workspaces or `npm` workspaces for the JS side; `uv` workspaces or a top-level `pyproject.toml` referencing `backend/` and `worker/` for the Python side). Subprojects build independently but share lockfiles where the ecosystem supports it.
 - `DECISIONS.md` initialized for the deviation clause (0.2).
 - `.env.example` documenting every required variable; **no real secrets in the repo**.
 - Pre-commit hooks: linter, formatter, `detect-secrets` (or equivalent) scanner.
-- CI pipeline running: lint, type-check, tests, dependency vulnerability scan (e.g., `pip-audit`, `npm audit --audit-level=high`), SBOM generation.
-- README covering local-dev bring-up.
-- **Deployment scaffolding under `infra/`**: a `docker-compose.yml` for local development, plus a production deployment template (Dockerfile + reverse-proxy config, e.g. Caddy or nginx, with TLS via Let's Encrypt). The two share the same images; only configuration differs. A documented `DEPLOYMENT.md` covering both local-only and server-hosted modes.
-- Configuration loader that reads a single `INTERESTRIAGE_MODE` setting (`local` or `server`) and applies the right defaults for bind address, TLS, and external-fetch behavior. The agent must not introduce divergent code paths for the two modes — only configuration and middleware composition differ.
+- CI pipeline running: lint, type-check, tests, dependency vulnerability scan (e.g., `pip-audit`, `npm audit --audit-level=high`), SBOM generation. CI builds each artifact (backend image, dashboard bundle, extension package) independently but from the same commit.
+- README covering local-dev bring-up; `DEPLOYMENT.md` covering both local-only and server-hosted modes; `DEVELOPMENT.md` covering the local Docker workflow per §1.3.
+- **Deployment scaffolding under `infra/`** organized as:
+  - `infra/dev/docker-compose.yml` — the local development stack per §1.3 (`backend`, `worker`, `db`, `proxy`, `parser-sandbox`).
+  - `infra/dev/evil-server/` — the hostile HTTP server container used by Stage 3 SSRF tests (image definition + canned attack scenarios).
+  - `infra/production/docker-compose.yml` — production deployment template (same images, production configuration, TLS via Caddy or nginx + Let's Encrypt).
+  - `infra/Dockerfile.backend` — the shared image for `backend` and `worker` entry points.
+  - `infra/Dockerfile.dashboard` — the dashboard build/serve image (or a static-bundle output if served by the proxy).
+- Configuration loader that reads a single `INTERESTRIAGE_MODE` setting (`local` or `server`) and applies the right defaults for bind address, TLS, rate limits, CORS, and external-fetch behavior. The agent must not introduce divergent code paths for the two modes — only configuration and middleware composition differ.
+- A `StubTTS` adapter (Stage 8 contract) that returns a deterministic short silent MP3. Wired as the default TTS in the dev `docker-compose.yml`. Real TTS adapters are tested separately, not in the inner loop.
+- A `Makefile` (or task runner equivalent: `just`, `task`, etc.) exposing at minimum: `make dev` (bring up the dev stack), `make test` (run all unit + integration tests), `make test-ssrf` (run Stage 3 SSRF tests against `evil-server`), `make test-audio` (run real-TTS tests), `make build` (produce all deployment artifacts), `make down` (tear down dev stack).
 
 **Acceptance criteria.**
-- A fresh clone bootstraps with documented commands and runs `make test` (or equivalent) green.
+- A fresh clone bootstraps with documented commands and runs `make test` green.
+- `make dev` brings up the local Docker stack and the dashboard is reachable through the local proxy with a self-signed cert (or plain HTTP on `localhost`, per the dev configuration choice recorded in `DECISIONS.md`).
+- `make build` produces three artifacts: a backend Docker image, a dashboard static bundle, an extension `.zip`. None of the three contains source from the others.
 - CI fails the build on a known-vulnerable dependency.
 - Pre-commit blocks a commit that introduces a fake secret string.
+- The dev stack and the production stack are launched from the **same** image tags; only the compose file and environment differ. A test asserts the image SHAs match.
 
 **Security gates.**
 - Secret-scanning pre-commit and CI step both active.
 - Dependency vulnerability scanning active and blocking on `high`+.
 - Lockfiles present for every language ecosystem.
-- `.gitignore` covers `.env`, blob store paths, audio outputs.
+- `.gitignore` covers `.env`, blob store paths, audio outputs, generated certificates, `infra/dev/data/`.
+- The `evil-server` container is **never** started by the default dev stack and **never** exposed on a host port; it is only accessible from within the test Docker network when explicitly invoked by the test harness. This prevents a developer accidentally running it as a real service.
 
-**Out of scope.** Production deployment, infra-as-code beyond a local docker-compose (if used).
+**Out of scope.** Production-grade orchestration (Kubernetes, Nomad), blue-green deployment, multi-host scaling.
 
 ---
 
@@ -515,16 +609,18 @@ The following stages are dependency-ordered. Each stage produces a runnable, tes
 - All extracted text stored as a blob and hashed.
 
 **Acceptance criteria.**
-- Fetcher unit tests cover: localhost, 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, IPv6 loopback and ULA, DNS-rebinding (initial-resolve-then-mutate scenario), redirect-to-private, oversized response, slow-loris timeout. **All must be rejected.**
-- A maliciously crafted "PDF bomb" (e.g., highly compressed, deeply nested objects) does not exhaust worker memory; it is rejected within the configured limits.
+- Stage 3 SSRF and parser tests run against the `evil-server` container (§1.3). They must be invokable via `make test-ssrf` and run as part of CI.
+- Fetcher tests cover, against canned scenarios served by `evil-server`: localhost, 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, IPv6 loopback and ULA, DNS-rebinding (initial-resolve-then-mutate scenario), redirect-to-private, oversized response, slow-loris timeout, content-type/body mismatch. **All must be rejected** by the backend container while running with production-equivalent SSRF settings.
+- A maliciously crafted "PDF bomb" served by `evil-server` (e.g., highly compressed, deeply nested objects) does not exhaust the parser-sandbox container's memory; it is rejected within the configured limits, and the `parser-sandbox` container's resource caps are observable in the test output.
 - A markdown file containing inline HTML/JS is parsed as text only; no scripts execute.
 - A 50 MB text file is rejected; a 500 KB file is parsed within bounded time.
 
 **Security gates.**
-- Parser sandboxing in place (separate process at minimum; container preferred).
+- Parser sandboxing in place and verifiable in the dev stack: the `parser-sandbox` container runs with CPU, memory, and output-size caps that the test harness can observe being hit.
 - Resource caps verifiable (memory, CPU time, output size, page count).
 - All fetched content stored with provenance (final URL, status, content-type, size, hash).
 - Fetcher does not follow `file://`, `gopher://`, or any non-HTTP scheme.
+- The SSRF test suite is part of the standard CI run, not optional. A regression that weakens the fetcher fails the build.
 
 **Out of scope.** Headless-browser rendering, paywall handling, archive ingestion, OCR for scanned PDFs.
 
@@ -641,15 +737,18 @@ The following stages are dependency-ordered. Each stage produces a runnable, tes
 **Goal.** Render the script into a single MP3 audio file.
 
 **Deliverables.**
-- A `TTSAdapter` interface (`synthesize(text, voice) -> audio_bytes`) and one concrete implementation. MVP candidates: Coqui TTS or Kokoro for fully local; ElevenLabs or Polly for hosted quality.
+- A `TTSAdapter` interface (`synthesize(text, voice) -> audio_bytes`).
+- **`StubTTS`** — a deterministic stub adapter (introduced in Stage 0) that returns short silent MP3 segments with duration proportional to input length. Used as the default in the dev `docker-compose.yml` to keep the inner loop fast. Required, not optional.
+- **At least one real TTS adapter.** MVP candidates: Coqui TTS or Kokoro for fully local; ElevenLabs or Polly for hosted quality. Configurable via the same adapter interface.
 - Segment-by-segment synthesis with voice mapping per speaker.
 - Audio concatenation (e.g., `pydub` or `ffmpeg`) into one MP3, with optional intro/outro audio.
 - Duration measured from the produced file and stored on the `PodcastEpisode`.
 - Hard cap on total audio duration (default 30 minutes) to prevent runaway generation.
 
 **Acceptance criteria.**
-- Given a fixture script, the pipeline produces a playable MP3 within the duration target.
-- The audio file's measured duration is within ±25% of the word-count estimate.
+- `make test` exercises the pipeline end-to-end with `StubTTS` and produces a valid MP3 with the expected segment count and approximate length.
+- `make test-audio` exercises the pipeline with the configured real TTS adapter and produces a playable MP3 within the duration target. This target runs separately from `make test` to avoid cost and latency in the inner loop.
+- The audio file's measured duration (with the real adapter) is within ±25% of the word-count estimate.
 - Switching the configured TTS adapter does not require code changes elsewhere.
 - Failure of one segment does not corrupt the rest; the segment is replaced with a short spoken error notice or skipped, and the run is marked partially-successful.
 
@@ -658,6 +757,7 @@ The following stages are dependency-ordered. Each stage produces a runnable, tes
 - Audio file permissions match the user's namespace (private by default).
 - If the TTS provider is external, the script text sent to it is the same script text recorded in `script_ref`; any per-provider escaping is recorded in `voice_configuration`.
 - A maximum byte size is enforced on the final audio (DoS guard).
+- Production deployments do not ship with `StubTTS` as the active adapter; a startup check refuses to launch in `server` mode if the configured TTS adapter is `StubTTS` (the dev convenience must not silently leak into production).
 
 **Out of scope.** Music beds, multi-track mixing, mastering.
 
@@ -916,3 +1016,7 @@ This profile is mostly already supported by the adapter design; the work is pack
 - **`DeviceToken`** — a per-device bearer credential that authenticates one client (one browser, one phone) against the backend. Hashed at rest, individually revocable, finite-lifetime.
 - **Local-only mode** — deployment configuration where the backend binds to `localhost`; no public network exposure.
 - **Server-hosted mode** — deployment configuration where the backend is reachable over the public internet behind a TLS reverse proxy; the default in this spec.
+- **Monorepo** — single git repository containing all subprojects (extension, backend, worker, dashboard, future mobile app) under one history. Maps to multiple deployment artifacts at build time, not at source-tree time.
+- **Build artifact** — an output of the CI pipeline (backend Docker image, dashboard static bundle, extension `.zip`, mobile binary). Each artifact is deployed independently to its own destination.
+- **Evil server** — the `evil-server` container in `infra/dev/evil-server/`, a deliberately hostile HTTP server that serves canned attack payloads (private-IP redirects, DNS-rebinding, slow-loris, oversized responses, PDF bombs) for Stage 3 SSRF and parser tests. Never started by the default dev stack; never exposed to the host.
+- **`StubTTS`** — a deterministic stub TTS adapter that returns short silent MP3 segments. Default in the dev stack to keep the inner loop fast. Refused in production by a startup check.
