@@ -1,0 +1,46 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+*/node_modules/
+
+# Build artifacts
+dist/
+coverage/
+backend/dist/
+worker/dist/
+web/dist/
+web/build/
+extension/dist/
+extension/build/
+shared/dist/
+shared/build/
+
+# Runtime data and outputs
+outputs/
+audio/
+blob-store/
+infra/dev/data/
+infra/dev/certs/
+infra/production/certs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

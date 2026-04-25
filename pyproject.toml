@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "interestriage"
+version = "0.1.0"
+description = "Interestriage backend and worker foundations"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "pydantic-settings>=2.6.0,<3.0.0",
+  "pydub>=0.25.1,<1.0.0",
+  "pyyaml>=6.0.2,<7.0.0",
+  "uvicorn>=0.32.0,<1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "detect-secrets>=1.5.0,<2.0.0",
+  "pip-audit>=2.8.0,<3.0.0",
+  "pytest>=9.0.3,<10.0.0",
+  "ruff>=0.9.0,<1.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["backend/src", "worker/src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend/src", "worker/src"]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+  "audio_real: tests that require a real TTS adapter configuration",
+  "integration: integration-level checks that may require external services"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

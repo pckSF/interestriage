@@ -1,0 +1,13 @@
+{
+  "name": "@interestriage/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf build dist",
+    "build": "npm run clean && tsc -p tsconfig.json && node scripts/build-extension.mjs",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node -e \"console.log('extension tests pending')\""
+  }
+}

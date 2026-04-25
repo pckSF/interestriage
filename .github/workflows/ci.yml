@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev
+
+      - name: Secret scan
+        run: uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
+
+      - name: Lint and type-check
+        run: |
+          npm run lint
+          npm run typecheck
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Audit JS dependencies
+        run: npm audit --audit-level=high
+
+      - name: Audit Python dependencies
+        run: uv run pip-audit --ignore-vuln CVE-2026-3219
+
+      - name: Generate SBOM
+        run: |
+          uv run python scripts/generate_sbom.py
+
+      - name: Build dashboard and extension
+        run: |
+          npm run build -w shared
+          npm run build -w web
+          npm run build -w extension
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.backend
+          push: false
+          tags: interestriage/backend:ci

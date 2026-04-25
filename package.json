@@ -1,0 +1,20 @@
+{
+  "name": "interestriage",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "extension",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build -w shared && npm run build -w extension && npm run build -w web",
+    "lint": "npm run lint -w shared && npm run lint -w extension && npm run lint -w web",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w extension && npm run typecheck -w web",
+    "test": "npm run test -w shared && npm run test -w extension && npm run test -w web"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "typescript": "^5.6.3"
+  }
+}

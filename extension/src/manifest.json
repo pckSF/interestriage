@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Interestriage",
+  "description": "Capture interesting links for daily triage",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}

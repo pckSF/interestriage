@@ -1,0 +1,56 @@
+services:
+  devcontainer:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    init: true
+    volumes:
+      - ..:/workspace:cached
+    environment:
+      INTERESTRIAGE_MODE: local
+      DATABASE_URL: postgresql://interestriage:interestriage@postgres:5432/interestriage
+      REDIS_URL: redis://redis:6379/0
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - interestriage
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: interestriage
+      POSTGRES_USER: interestriage
+      POSTGRES_PASSWORD: interestriage
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interestriage -d interestriage"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - interestriage
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - interestriage
+
+volumes:
+  postgres-data:
+
+networks:
+  interestriage:
+    driver: bridge
