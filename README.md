@@ -20,6 +20,8 @@ Interestriage is a server-first personal content triage system. This repository 
 - Shared backend image for API and worker entry points.
 - Dev and production compose stacks using the same image tag.
 - CI with linting, typing, tests, dependency scans, and SBOM generation.
+- Dedicated zizmor workflow for GitHub Actions security scanning.
 - Pre-commit hooks with immutable SHA pinning, betterleaks secret scanning, zizmor, and actionlint.
+- Optional isolated pip-audit container target: make pip-audit-container.
 
 See DEVELOPMENT.md for local workflow and DEPLOYMENT.md for server-hosted deployment.

@@ -26,6 +26,12 @@ The dashboard is served through the proxy at http://localhost:8080.
 - make test: lint, type-check, and Python tests.
 - make test-ssrf: Stage 3 scaffold tests with evil-server profile.
 - make test-audio: real TTS test target (skips unless configured).
+- make pip-audit-container: build and run pip-audit in an isolated hardened container.
+
+Containerized pip-audit examples:
+
+- make pip-audit-container
+- make pip-audit-container PIP_AUDIT_ARGS=". --ignore-vuln CVE-2026-3219"
 
 ## Notes
 

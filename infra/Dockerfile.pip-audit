@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1
+
+FROM cgr.dev/chainguard/python:latest-dev AS build
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VENV_PATH=/opt/pip-audit-venv
+
+RUN python -m venv "${VENV_PATH}"
+RUN "${VENV_PATH}/bin/python" -m pip install --no-cache-dir "pip-audit==2.9.0"
+
+# Runtime stage uses a pinned minimal Chainguard image with no shell/package manager.
+FROM cgr.dev/chainguard/python@sha256:18a4fbda8c280978b6aa5329f7acd4dbb106876e76fdc87913855ebf4876f2ff AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VENV_PATH=/opt/pip-audit-venv \
+    PATH="/opt/pip-audit-venv/bin:${PATH}"
+
+COPY --from=build /opt/pip-audit-venv /opt/pip-audit-venv
+
+WORKDIR /workspace
+
+ENTRYPOINT ["python", "-m", "pip_audit"]
+CMD ["--help"]

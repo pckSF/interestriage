@@ -25,3 +25,11 @@ This file records decisions under the deviation clause in the specification.
 - Justification: single JS lockfile and reproducible Python environment with fast CI sync.
 - Risks introduced: uv becomes an additional tooling dependency.
 - Mitigation: Makefile and docs bootstrap uv automatically when missing.
+
+## 2026-04-25 - Server Runtime Container Minimalism Policy
+
+- Original prescription: security controls require minimised exposed surface, strong supply-chain hygiene, and documented hardening for server-hosted deployments.
+- Decision: all containers and services deployed on servers must use minimal runtime images by default, with no interactive shell, no package manager, and no unnecessary CLI tooling in the runtime layer.
+- Justification: this reduces post-compromise pivot capability, shrinks attack surface, and aligns with the "minimised exposed surface" and hardening controls in the specification.
+- Risks introduced: incident response and live debugging can become harder if operators expect shell access in production containers.
+- Mitigation: use multi-stage builds (tooling in build stage only), keep dedicated debug images/procedures out of normal production deployment, and document approved break-glass workflows in runbooks.
