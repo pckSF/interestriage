@@ -14,7 +14,7 @@
     "test": "npm run test -w shared && npm run test -w extension && npm run test -w web"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.280",
+    "@types/chrome": "^0.1.40",
     "typescript": "^5.6.3"
   }
 }
