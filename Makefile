@@ -51,6 +51,8 @@ pip-audit-container-build:
 
 pip-audit-container: pip-audit-container-build
 	@$(DOCKER) run --rm \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges:true \
 		-v "$(PWD):/workspace:ro" \
 		-w /workspace \
 		$(PIP_AUDIT_IMAGE) $(PIP_AUDIT_ARGS)
