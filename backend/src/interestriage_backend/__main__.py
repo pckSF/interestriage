@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uvicorn
-
 from interestriage_backend.app import create_app
 from interestriage_backend.config import load_config
 

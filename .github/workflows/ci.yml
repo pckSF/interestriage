@@ -4,36 +4,41 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        run: pip install uv
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
 
       - name: Install JS dependencies
         run: npm ci
 
       - name: Install Python dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
 
-      - name: Secret scan
-        run: uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
+      - name: Run pre-commit checks
+        run: uvx pre-commit run --all-files --show-diff-on-failure
 
       - name: Lint and type-check
         run: |
@@ -62,7 +67,7 @@ jobs:
           npm run build -w extension
 
       - name: Build backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: infra/Dockerfile.backend

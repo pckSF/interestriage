@@ -1,28 +1,59 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
     hooks:
       - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
       - id: trailing-whitespace
       - id: check-yaml
       - id: check-json
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.6
+    rev: d1b833175a5d08a925900115526febd8fe71c98e # v0.15.11
     hooks:
-      - id: ruff
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+  - repo: https://github.com/PyCQA/isort
+    rev: a333737ed43df02b18e6c95477ea1b285b3de15a # 8.0.1
     hooks:
-      - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline"]
+      - id: isort
+        args: [--profile, black, --filter-files]
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: b546b77c44c466a54a42af5499dcc0dcc1a3193f # v1.22.0
+    hooks:
+      - id: zizmor
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+    hooks:
+      - id: actionlint-docker
+
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: 31746c9420b19a592848b21d6d8977d53cc6da0e # v1.1.2
+    hooks:
+      - id: betterleaks
 
   - repo: local
     hooks:
+      - id: ty-check
+        name: ty check
+        entry: env PYTHONPATH=backend/src:worker/src uvx ty==0.0.32 check
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
       - id: ts-typecheck
         name: ts-typecheck
         entry: npm run typecheck
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
         language: system
         pass_filenames: false

@@ -19,7 +19,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "detect-secrets>=1.5.0,<2.0.0",
   "pip-audit>=2.8.0,<3.0.0",
   "pytest>=9.0.3,<10.0.0",
   "ruff>=0.9.0,<1.0.0"
@@ -42,4 +41,4 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "UP"]
