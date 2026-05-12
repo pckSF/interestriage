@@ -33,7 +33,7 @@ repos:
       - id: actionlint-docker
 
   - repo: https://github.com/betterleaks/betterleaks
-    rev: 31746c9420b19a592848b21d6d8977d53cc6da0e # v1.1.2
+    rev: 296fee33358904c47d094fa6716347b223b2c13f # v1.2.0
     hooks:
       - id: betterleaks
 
